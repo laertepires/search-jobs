@@ -1,4 +1,5 @@
-import { Grid2 as Grid, styled, Typography } from "@mui/material";
+/* eslint-disable  @typescript-eslint/no-explicit-any */
+import { Grid2 as Grid, Typography } from "@mui/material";
 import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
 import axios from "axios";
@@ -22,6 +23,7 @@ export default async function JobList() {
       <Grid size={12}>
         {data?.jobsPage?.map((result: any) => (
           <Link
+            key={result.jobId}
             href="https://vercel.com"
             target="_blank"
             rel="noopener noreferrer"
