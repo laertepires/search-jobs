@@ -1,4 +1,3 @@
-import { NextApiRequest, NextApiResponse } from "next";
 import axios from "axios";
 import { prisma } from "../../../../prisma/client";
 import { slugify } from "@/utils/utils";
@@ -6,10 +5,10 @@ import { Job } from "@/types";
 
 export const config = {
   runtime: "nodejs",
-  schedule: "*/10 * * * *",
+  schedule: "0 */8 * * *",
 };
 
-export async function GET(req: NextApiRequest, res: NextApiResponse) {
+export async function GET() {
   const urlApi = process.env.API_URL || '';
   const urls = [
     {
@@ -86,10 +85,10 @@ export async function GET(req: NextApiRequest, res: NextApiResponse) {
         headers: { "Content-Type": "application/json" },
       }
     );
-  } catch (error: any) {
+  } catch (error) {
     console.error("Erro ao processar as requisições:", error);
     return new Response(
-      JSON.stringify({ success: false, error: error.message || error }),
+      JSON.stringify({ success: false, error: error }),
       {
         status: 500,
         headers: { "Content-Type": "application/json" },

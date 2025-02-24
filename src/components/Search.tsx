@@ -5,7 +5,7 @@ import { SubmitHandler, useForm, useFormContext } from "react-hook-form";
 
 export default function Search() {
   const { setValue } = useFormContext();
-  const { register, handleSubmit } = useForm<any>();
+  const { register, handleSubmit } = useForm<FormValues>();
   const onSubmit: SubmitHandler<FormValues> = (data) =>
     setValue("search", data.search);
 

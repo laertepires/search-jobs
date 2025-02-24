@@ -1,6 +1,7 @@
+import { PaginatedJobsResponse } from "@/types";
 import { useQuery } from "@tanstack/react-query";
 
-export const fetchJobs = async (pageSize = 10, page = 1, search = ''): Promise<any> => {
+export const fetchJobs = async (pageSize = 10, page = 1, search = ''): Promise<PaginatedJobsResponse> => {
   const res = await fetch(`/api/jobs?pageSize=${pageSize}&page=${page}&search=${search}`);
   return res.json();
 };

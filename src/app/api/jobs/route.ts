@@ -27,6 +27,6 @@ export async function GET(request: Request) {
       pageSize,
     });
   } catch (error) {
-    return NextResponse.json({ error: "Erro ao buscar jobs" }, { status: 500 });
+    return NextResponse.json({ error: "Erro ao buscar jobs" + error }, { status: 500 });
   }
 }

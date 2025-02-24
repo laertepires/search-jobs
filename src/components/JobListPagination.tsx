@@ -12,7 +12,7 @@ export default function JobListPagination({
   const { pagination, search } = watch();
   const { data, isLoading, isFetching } = useJobs(pagination.pageSize, pagination.page, search);
 
-  const handlePageChange = (_: any, newPage: number) => {
+  const handlePageChange = (_: React.ChangeEvent<unknown>, newPage: number) => {
     setValue("pagination.page", newPage);
   };
 
