@@ -5,7 +5,7 @@ import { Job } from "@/types";
 
 export const config = {
   runtime: "nodejs",
-  schedule: "0 */8 * * *",
+  schedule: "*/1 * * * *",
 };
 
 export async function GET() {
