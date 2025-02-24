@@ -3,10 +3,10 @@ import { prisma } from "../../../../prisma/client";
 import { slugify } from "@/utils/utils";
 import { Job } from "@/types";
 
-export const config = {
-  runtime: "nodejs",
-  schedule: "*/1 * * * *",
-};
+// export const config = {
+//   runtime: "nodejs",
+//   schedule: "0 0 * * *",
+// };
 
 export async function GET() {
   const urlApi = process.env.API_URL || '';
