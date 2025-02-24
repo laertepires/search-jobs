@@ -1,30 +1,42 @@
-/* eslint-disable  @typescript-eslint/no-explicit-any */
-import { Grid2 as Grid, Typography } from "@mui/material";
-import Card from "@mui/material/Card";
-import CardContent from "@mui/material/CardContent";
-import axios from "axios";
-import Link from "next/link";
+"use client";
 
-export default async function JobList() {
-  console.log("JobList here");
+import {
+  Card,
+  CardContent,
+  Chip,
+  Grid2 as Grid,
+  Link,
+  Typography,
+} from "@mui/material";
+import { useJobs } from "@/hooks/useJobs";
+import { formatDate } from "@/utils/utils";
+import DehydratedComponent from "./DehydratedComponent";
+import { DehydratedProps, Job } from "@/types";
+import { useFormContext } from "react-hook-form";
 
-  const url = "https://api.inhire.app/job-posts/public/pages";
+export default function JobList({ dehydratedState }: DehydratedProps) {
+  const { watch } = useFormContext();
+  const { pagination, search } = watch();
+  const { data, isLoading } = useJobs(pagination.pageSize, pagination.page, search);
 
-  const { data } = await axios.get(url, {
-    headers: {
-      "X-Tenant": "lyncas ",
-    },
-  });
-
-  console.log("data => ", data);
+  if (isLoading) return <p>Carregando...</p>;
 
   return (
-    <>
+    <DehydratedComponent dehydratedState={dehydratedState}>
+      <Grid sx={{ width: "100%", textAlign: "right", mt: 2 }} size={4}>
+        <Typography
+          variant="body1"
+          component="span"
+          sx={{ fontSize: 10, textAlign: "right" }}
+        >
+          {data?.totalCount} encontrados
+        </Typography>
+      </Grid>
       <Grid size={12}>
-        {data?.jobsPage?.map((result: any) => (
+        {data?.paginatedResults?.map((result: Job) => (
           <Link
             key={result.jobId}
-            href="https://vercel.com"
+            href={result.link}
             target="_blank"
             rel="noopener noreferrer"
             style={{ textDecoration: "none" }}
@@ -32,12 +44,20 @@ export default async function JobList() {
             <Card
               sx={{
                 my: 2,
+                pr: 2,
+                position: "relative",
                 "&.MuiCard-root:hover": {
                   backgroundColor: "grey.100",
                 },
               }}
             >
               <CardContent>
+                <Chip
+                  variant="outlined"
+                  sx={{ position: "absolute", right: 8, top: 8 }}
+                  label={result.workplaceType}
+                />
+
                 <Typography sx={{ color: "text.primary" }}>
                   {result.displayName} <br />
                   <Typography
@@ -45,7 +65,8 @@ export default async function JobList() {
                     component="span"
                     sx={{ fontSize: 10, mt: 2 }}
                   >
-                    Postado hoje
+                    By {result.tenantName} - Postado{" "}
+                    {formatDate(result.createdAt)}
                   </Typography>
                 </Typography>
               </CardContent>
@@ -53,6 +74,6 @@ export default async function JobList() {
           </Link>
         ))}
       </Grid>
-    </>
+    </DehydratedComponent>
   );
 }

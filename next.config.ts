@@ -5,6 +5,9 @@ const nextConfig: NextConfig = {
   compiler: {
     styledComponents: true,
   },
+  env: {
+    API_URL: "https://api.inhire.app/job-posts/public/pages",
+  },
   // webpack: config => {
   //   config.resolve.alias['@'] = path.resolve(__dirname);
   //   return config;

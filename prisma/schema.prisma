@@ -1,0 +1,33 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource u487509423_search {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Jobs {
+  jobId           String  @id @default(cuid())
+  displayName     String
+  location        String
+  workplaceType   String?
+  link            String?
+  published       Boolean @default(true)
+  XTenant         String?
+  createdAt       DateTime @default(now())
+  tenantName      String?
+}
+
+model Company {
+  id           String  @id @default(cuid())
+  displayName     String
+  XTenant         String?
+}
+
