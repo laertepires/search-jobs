@@ -2,7 +2,7 @@
 
 import { useJobs } from "@/hooks/useJobs";
 import { DehydratedProps, FormValues } from "@/types";
-import { Box, Pagination, Typography } from "@mui/material";
+import { Box, CircularProgress, Pagination, Stack, Typography } from "@mui/material";
 import DehydratedComponent from "./DehydratedComponent";
 import { useFormContext } from "react-hook-form";
 
@@ -40,7 +40,10 @@ export default function JobListPagination({
         }}
       >
         {isFetching ? (
-          <Typography color="text.secondary">Atualizando resultados...</Typography>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <CircularProgress size={16} />
+            <Typography color="text.secondary">Atualizando resultados...</Typography>
+          </Stack>
         ) : null}
 
         <Pagination

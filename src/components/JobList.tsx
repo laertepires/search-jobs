@@ -3,6 +3,7 @@
 import {
   Box,
   Button,
+  CircularProgress,
   Card,
   Chip,
   Divider,
@@ -40,7 +41,7 @@ export default function JobList({ dehydratedState }: DehydratedProps) {
   const pagination = watch("pagination");
   const search = watch("search");
   const filters = watch("filters");
-  const { data, isLoading } = useJobs(
+  const { data, isLoading, isFetching } = useJobs(
     pagination.pageSize,
     pagination.page,
     search,
@@ -57,7 +58,31 @@ export default function JobList({ dehydratedState }: DehydratedProps) {
 
   return (
     <DehydratedComponent dehydratedState={dehydratedState}>
-      <Stack spacing={3}>
+      <Box sx={{ position: "relative" }}>
+        {isFetching ? (
+          <Box
+            sx={{
+              position: "absolute",
+              inset: 0,
+              zIndex: 2,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: "rgba(248, 250, 252, 0.72)",
+              backdropFilter: "blur(1px)",
+              borderRadius: 2,
+            }}
+          >
+            <Stack alignItems="center" spacing={1.5}>
+              <CircularProgress size={28} />
+              <Typography color="text.secondary" sx={{ fontSize: 14 }}>
+                Atualizando vagas...
+              </Typography>
+            </Stack>
+          </Box>
+        ) : null}
+
+        <Stack spacing={3} sx={{ opacity: isFetching ? 0.55 : 1 }}>
         <Stack
           direction={{ xs: "column", md: "row" }}
           justifyContent="space-between"
@@ -210,7 +235,8 @@ export default function JobList({ dehydratedState }: DehydratedProps) {
             </Typography>
           </Card>
         )}
-      </Stack>
+        </Stack>
+      </Box>
     </DehydratedComponent>
   );
 }
