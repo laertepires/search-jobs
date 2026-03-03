@@ -31,3 +31,17 @@ model Company {
   XTenant         String?
 }
 
+model CronFailureLog {
+  id        String   @id
+  runId     String
+  tenant    String
+  stage     String
+  reason    String   @u487509423_search.Text
+  details   String?  @u487509423_search.Text
+  createdAt DateTime @default(now())
+
+  @@index([runId, createdAt])
+  @@index([tenant, createdAt])
+  @@index([stage, createdAt])
+}
+

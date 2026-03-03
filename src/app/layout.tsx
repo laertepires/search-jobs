@@ -1,4 +1,4 @@
-import { Roboto } from "next/font/google";
+import { Manrope } from "next/font/google";
 import { ThemeProvider } from "@mui/material/styles";
 import theme from "@/theme";
 import { CssBaseline } from "@mui/material";
@@ -6,16 +6,16 @@ import StyledJsxRegistry from "./registry";
 import Providers from "./providers";
 import { AppRouterCacheProvider } from "@mui/material-nextjs/v15-appRouter";
 
-const roboto = Roboto({
-  weight: ["300", "400", "500", "700"],
+const manrope = Manrope({
+  weight: ["400", "500", "600", "700", "800"],
   subsets: ["latin"],
   display: "swap",
-  variable: "--font-roboto",
+  variable: "--font-manrope",
 });
 
 export const metadata = {
-  title: "Minha Aplicação",
-  description: "Descrição da minha aplicação",
+  title: "JobPortal",
+  description: "Busque vagas de tecnologia em um so lugar.",
 };
 
 export default function RootLayout({
@@ -25,7 +25,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="pt-br">
-      <body className={roboto.variable}>
+      <body className={manrope.variable}>
         <AppRouterCacheProvider>
           <ThemeProvider theme={theme}>
             <CssBaseline />

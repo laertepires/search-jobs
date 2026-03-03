@@ -2,7 +2,7 @@ import { DehydratedState, HydrationBoundary } from "@tanstack/react-query";
 import { ReactNode } from "react";
 
 interface ListProps {
-  dehydratedState: DehydratedState;
+  dehydratedState?: DehydratedState;
   children: ReactNode;
 }
 
@@ -10,6 +10,10 @@ export default function DehydratedComponent({
   dehydratedState,
   children,
 }: ListProps) {
+  if (!dehydratedState) {
+    return <>{children}</>;
+  }
+
   return (
     <HydrationBoundary state={dehydratedState}>{children}</HydrationBoundary>
   );

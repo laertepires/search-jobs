@@ -7,12 +7,25 @@ export type PaginationData = {
   limit?: number;
 };
 
+export interface JobFilters {
+  companies: string[];
+  locations: string[];
+  workplaceTypes: string[];
+  postedWithinDays: number | null;
+}
+
 export interface FormValues {
   search: string;
+  searchInput: string;
+  filters: JobFilters;
+  pagination: {
+    page: number;
+    pageSize: number;
+  };
 }
 
 export interface DehydratedProps {
-  dehydratedState: DehydratedState;
+  dehydratedState?: DehydratedState;
 }
 
 export interface Job {
@@ -32,5 +45,10 @@ export interface PaginatedJobsResponse {
   totalCount: number;
   page: number;
   pageSize: number;
+  availableFilters: {
+    companies: string[];
+    locations: string[];
+    workplaceTypes: string[];
+  };
 }
 
