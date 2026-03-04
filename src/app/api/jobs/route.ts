@@ -8,13 +8,51 @@ function parseListParam(value: string | null) {
     .filter(Boolean);
 }
 
+function normalizeLocationPart(value: string) {
+  return value
+    .replace(/^state of\s+/i, "")
+    .replace(/^federal district$/i, "DF")
+    .replace(/^brasil$/i, "Brazil")
+    .trim();
+}
+
+function normalizeCountry(value: string) {
+  const normalized = value.trim().toLowerCase();
+
+  if (normalized === "br" || normalized === "brazil" || normalized === "brasil") {
+    return "Brasil";
+  }
+
+  return value.trim();
+}
+
+function buildLocationLabel(location: string) {
+  const parts = location
+    .split(",")
+    .map((part) => normalizeLocationPart(part.trim()))
+    .filter(Boolean);
+
+  if (parts.length === 0) {
+    return location;
+  }
+
+  const country = normalizeCountry(parts[parts.length - 1]);
+  const remainingParts = parts.slice(0, -1);
+  const uniqueParts = Array.from(new Set(remainingParts));
+
+  if (uniqueParts.length === 0) {
+    return country;
+  }
+
+  return [...uniqueParts, country].join(", ");
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const pageSize = Number(searchParams.get("pageSize")) || 10;
   const page = Number(searchParams.get("page")) || 1;
   const search = searchParams.get("search") || "";
   const companies = parseListParam(searchParams.get("companies"));
-  const locations = parseListParam(searchParams.get("locations"));
   const workplaceTypes = parseListParam(searchParams.get("workplaceTypes"));
   const postedWithinDays = Number(searchParams.get("postedWithinDays")) || 0;
 
@@ -33,6 +71,30 @@ export async function GET(request: Request) {
       ? new Date(Date.now() - postedWithinDays * 24 * 60 * 60 * 1000)
       : null;
 
+  const locationOptions = await prisma.jobs.findMany({
+    where: searchWhere,
+    distinct: ["location"],
+    select: { location: true },
+    orderBy: { location: "asc" },
+  });
+
+  const locationsMap = locationOptions.reduce<Map<string, string[]>>((accumulator, item) => {
+    if (!item.location) {
+      return accumulator;
+    }
+
+    const label = buildLocationLabel(item.location);
+    const currentValues = accumulator.get(label) || [];
+    currentValues.push(item.location);
+    accumulator.set(label, currentValues);
+    return accumulator;
+  }, new Map());
+
+  const selectedLocations = parseListParam(searchParams.get("locations"));
+  const rawSelectedLocations = selectedLocations.flatMap(
+    (location) => locationsMap.get(location) || [],
+  );
+
   const where = {
     ...searchWhere,
     ...(companies.length > 0
@@ -42,10 +104,10 @@ export async function GET(request: Request) {
           },
         }
       : {}),
-    ...(locations.length > 0
+    ...(rawSelectedLocations.length > 0
       ? {
           location: {
-            in: locations,
+            in: rawSelectedLocations,
           },
         }
       : {}),
@@ -70,7 +132,6 @@ export async function GET(request: Request) {
       paginatedResults,
       totalCount,
       companyOptions,
-      locationOptions,
       workplaceTypeOptions,
     ] = await prisma.$transaction([
       prisma.jobs.findMany({
@@ -90,12 +151,6 @@ export async function GET(request: Request) {
       }),
       prisma.jobs.findMany({
         where: searchWhere,
-        distinct: ["location"],
-        select: { location: true },
-        orderBy: { location: "asc" },
-      }),
-      prisma.jobs.findMany({
-        where: searchWhere,
         distinct: ["workplaceType"],
         select: { workplaceType: true },
         orderBy: { workplaceType: "asc" },
@@ -111,7 +166,9 @@ export async function GET(request: Request) {
         companies: companyOptions
           .map((item) => item.tenantName)
           .filter(Boolean),
-        locations: locationOptions.map((item) => item.location).filter(Boolean),
+        locations: Array.from(locationsMap.keys()).sort((a, b) =>
+          a.localeCompare(b, "pt-BR"),
+        ),
         workplaceTypes: workplaceTypeOptions
           .map((item) => item.workplaceType)
           .filter(Boolean),

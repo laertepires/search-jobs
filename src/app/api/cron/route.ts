@@ -13,6 +13,75 @@ type TenantPayload = {
   jobsPage?: Job[];
 };
 
+type GreenhouseJobPost = {
+  id: number;
+  title: string;
+  location?: string | null;
+  absolute_url: string;
+  published_at?: string;
+  department?: {
+    name?: string;
+  } | null;
+};
+
+type GreenhouseResponse = {
+  jobPosts?: {
+    page: number;
+    total_pages: number;
+    data: GreenhouseJobPost[];
+  };
+};
+
+type WorkableLocation = {
+  country?: string;
+  city?: string;
+  region?: string | null;
+};
+
+type WorkableJobPost = {
+  id: number;
+  shortcode: string;
+  title: string;
+  remote?: boolean;
+  location?: WorkableLocation | null;
+  state?: string;
+  workplace?: string | null;
+  published?: string;
+};
+
+type WorkableResponse = {
+  total?: number;
+  results?: WorkableJobPost[];
+  nextPage?: string;
+};
+
+type WorkablePublicCompany = {
+  title?: string;
+};
+
+type WorkablePublicLocation = {
+  city?: string | null;
+  subregion?: string | null;
+  countryName?: string | null;
+};
+
+type WorkablePublicJobPost = {
+  id: string;
+  title: string;
+  state?: string;
+  url: string;
+  created?: string;
+  workplace?: string | null;
+  company?: WorkablePublicCompany | null;
+  location?: WorkablePublicLocation | null;
+};
+
+type WorkablePublicResponse = {
+  totalSize?: number;
+  nextPageToken?: string;
+  jobs?: WorkablePublicJobPost[];
+};
+
 type UpsertTask = {
   tenant: string;
   promise: Promise<{ action: "created" | "updated" }>;
@@ -30,6 +99,15 @@ type FailureLogEntry = {
 type TenantFailure = {
   tenant: string;
   reason: string;
+};
+
+type NormalizedJob = {
+  jobId: string;
+  displayName: string;
+  workplaceType?: string | null;
+  location: string;
+  link: string;
+  publishedAt?: string | Date;
 };
 
 // export const config = {
@@ -62,6 +140,288 @@ async function persistFailureLogs(runId: string, logs: FailureLogEntry[]) {
   );
 }
 
+function inferWorkplaceType(location?: string | null) {
+  const normalizedLocation = (location || "").toLowerCase();
+
+  if (normalizedLocation.includes("remoto") || normalizedLocation.includes("remote")) {
+    return "Remote";
+  }
+
+  if (normalizedLocation.includes("híbrido") || normalizedLocation.includes("hibrido")) {
+    return "Hybrid";
+  }
+
+  if (normalizedLocation.includes("hybrid")) {
+    return "Hybrid";
+  }
+
+  return "On-site";
+}
+
+function isPublishedWithinDays(dateValue?: string | Date, days = 30) {
+  if (!dateValue) {
+    return true;
+  }
+
+  const publishedAt = dateValue instanceof Date ? dateValue : new Date(dateValue);
+
+  if (Number.isNaN(publishedAt.getTime())) {
+    return true;
+  }
+
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - days);
+
+  return publishedAt >= cutoffDate;
+}
+
+async function createUpsertTasks(
+  tenant: string,
+  tenantName: string,
+  jobs: NormalizedJob[],
+) {
+  const existingJobs = await prisma.jobs.findMany({
+    where: {
+      jobId: {
+        in: jobs.map((job) => job.jobId),
+      },
+    },
+    select: {
+      jobId: true,
+    },
+  });
+
+  const existingJobIds = new Set(existingJobs.map((job) => job.jobId));
+
+  return jobs.map<UpsertTask>((job) => {
+    const action = existingJobIds.has(job.jobId) ? "updated" : "created";
+    const payload = {
+      link: job.link,
+      displayName: job.displayName,
+      workplaceType: job.workplaceType,
+      location: job.location,
+      tenantName,
+    };
+
+    return {
+      tenant,
+      promise: prisma.jobs
+        .upsert({
+          where: { jobId: job.jobId },
+          update: payload,
+          create: { jobId: job.jobId, ...payload },
+        })
+        .then(() => ({ action })),
+    };
+  });
+}
+
+async function fetchGreenhouseJobs() {
+  const tenant = "greenhouse:linx";
+  const tenantName = "Linx";
+  const departmentId = "4070828003";
+  const baseUrl = "https://job-boards.greenhouse.io/linx/";
+
+  const fetchPage = async (page: number) => {
+    const response = await axios.get<GreenhouseResponse>(baseUrl, {
+      params: {
+        "departments[]": departmentId,
+        page,
+        _data: "routes/$url_token",
+      },
+    });
+
+    return response.data;
+  };
+
+  const firstPage = await fetchPage(1);
+
+  if (!firstPage.jobPosts || !Array.isArray(firstPage.jobPosts.data)) {
+    throw new Error("Estrutura de dados invalida da Greenhouse");
+  }
+
+  const totalPages = Math.max(firstPage.jobPosts.total_pages || 1, 1);
+  const remainingPages =
+    totalPages > 1
+      ? await Promise.all(
+          Array.from({ length: totalPages - 1 }, (_, index) => fetchPage(index + 2)),
+        )
+      : [];
+
+  const allPosts = [
+    ...firstPage.jobPosts.data,
+    ...remainingPages.flatMap((page) => page.jobPosts?.data || []),
+  ];
+
+  const jobs = allPosts
+    .filter((post) => post.department?.name === "Engenharia & Tecnologia")
+    .map<NormalizedJob>((post) => ({
+      jobId: `greenhouse-linx-${post.id}`,
+      displayName: post.title,
+      workplaceType: inferWorkplaceType(post.location),
+      location: post.location || "Local nao informado",
+      link: post.absolute_url,
+      publishedAt: post.published_at,
+    }));
+
+  return {
+    tenant,
+    tenantName,
+    jobs,
+  };
+}
+
+function formatWorkableLocation(location?: WorkableLocation | null) {
+  if (!location) {
+    return "Local nao informado";
+  }
+
+  return [location.city, location.region, location.country].filter(Boolean).join(", ")
+    || "Local nao informado";
+}
+
+function formatWorkablePublicLocation(location?: WorkablePublicLocation | null) {
+  if (!location) {
+    return "Local nao informado";
+  }
+
+  return [location.city, location.subregion, location.countryName]
+    .filter(Boolean)
+    .join(", ") || "Local nao informado";
+}
+
+async function fetchWorkableJobs() {
+  const tenant = "workable:jobrack";
+  const tenantName = "JobRack";
+  const url = "https://apply.workable.com/api/v3/accounts/jobrack/jobs";
+
+  const fetchPage = async (token?: string) => {
+    const payload = {
+      query: "",
+      ...(token ? { token } : {}),
+      department: [],
+      location: [],
+      workplace: [],
+      worktype: [],
+    };
+
+    const response = await axios.post<WorkableResponse>(url, payload, {
+      headers: {
+        accept: "application/json, text/plain, */*",
+        "content-type": "application/json",
+      },
+    });
+
+    return response.data;
+  };
+
+  const jobs: WorkableJobPost[] = [];
+  let nextToken: string | undefined;
+
+  do {
+    const data = await fetchPage(nextToken);
+
+    if (!Array.isArray(data.results)) {
+      throw new Error("Estrutura de dados invalida da Workable");
+    }
+
+    jobs.push(...data.results);
+    nextToken = data.nextPage || undefined;
+  } while (nextToken);
+
+  const techJobs = jobs.filter(
+    (job) => job.state === "published" && isTechJobTitle(job.title),
+  );
+
+  return {
+    tenant,
+    tenantName,
+    jobs: techJobs.map<NormalizedJob>((job) => ({
+      jobId: `workable-jobrack-${job.id}`,
+      displayName: job.title,
+      workplaceType:
+        job.workplace === "remote"
+          ? "Remote"
+          : job.remote
+            ? "Remote"
+            : inferWorkplaceType(formatWorkableLocation(job.location)),
+      location: formatWorkableLocation(job.location),
+      link: `https://apply.workable.com/j/${job.shortcode}`,
+      publishedAt: job.published,
+    })),
+  };
+}
+
+async function fetchWorkablePublicJobs() {
+  const tenant = "workable:global-brazil";
+  const baseUrl = "https://jobs.workable.com/api/v1/jobs";
+
+  const fetchPage = async (pageToken?: string) => {
+    const response = await axios.get<WorkablePublicResponse>(baseUrl, {
+      params: {
+        location: "Brazil",
+        day_range: 1,
+        ...(pageToken ? { pageToken } : {}),
+      },
+    });
+
+    return response.data;
+  };
+
+  const jobs: WorkablePublicJobPost[] = [];
+  let nextPageToken: string | undefined;
+
+  do {
+    const data = await fetchPage(nextPageToken);
+
+    if (!Array.isArray(data.jobs)) {
+      throw new Error("Estrutura de dados invalida da Workable publica");
+    }
+
+    jobs.push(...data.jobs);
+    nextPageToken = data.nextPageToken || undefined;
+  } while (nextPageToken);
+
+  const techJobs = jobs.filter(
+    (job) => job.state === "published" && isTechJobTitle(job.title),
+  );
+
+  const uniqueJobsByLink = new Map<string, WorkablePublicJobPost>();
+
+  for (const job of techJobs) {
+    const existingJob = uniqueJobsByLink.get(job.url);
+
+    if (!existingJob) {
+      uniqueJobsByLink.set(job.url, job);
+      continue;
+    }
+
+    const existingCreatedAt = existingJob.created
+      ? new Date(existingJob.created).getTime()
+      : 0;
+    const currentCreatedAt = job.created ? new Date(job.created).getTime() : 0;
+
+    if (currentCreatedAt > existingCreatedAt) {
+      uniqueJobsByLink.set(job.url, job);
+    }
+  }
+
+  return {
+    tenant,
+    jobs: Array.from(uniqueJobsByLink.values()).map((job) => ({
+      tenantName: job.company?.title?.trim() || "Workable",
+      normalizedJob: {
+        jobId: `workable-global-${job.id}`,
+        displayName: job.title,
+        workplaceType: inferWorkplaceType(job.workplace),
+        location: formatWorkablePublicLocation(job.location),
+        link: job.url,
+        publishedAt: job.created,
+      },
+    })),
+  };
+}
+
 async function sendCronSummaryTelegram({
   processedTenants,
   successfulFetches,
@@ -71,6 +431,7 @@ async function sendCronSummaryTelegram({
   invalidPayloads,
   upsertFailures,
   skippedNonTechJobs,
+  skippedOldJobs,
 }: {
   processedTenants: number;
   successfulFetches: number;
@@ -80,6 +441,7 @@ async function sendCronSummaryTelegram({
   invalidPayloads: TenantFailure[];
   upsertFailures: TenantFailure[];
   skippedNonTechJobs: number;
+  skippedOldJobs: number;
 }) {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -115,6 +477,7 @@ async function sendCronSummaryTelegram({
     `- Novas vagas adicionadas: ${createdCount}`,
     `- Vagas ja existentes atualizadas: ${updatedCount}`,
     `- Vagas ignoradas por filtro de TI: ${skippedNonTechJobs}`,
+    `- Vagas ignoradas por serem antigas: ${skippedOldJobs}`,
     `- Falhas totais: ${totalFailures}`,
     "",
     "Acesse o portal",
@@ -154,65 +517,64 @@ async function sendCronSummaryTelegram({
 export async function GET() {
   const urlApi = process.env.API_URL || "";
   const runId = crypto.randomUUID();
- const tenants: TenantConfig[] = [
-  { XTenant: "alice" },
-  { XTenant: "programmers" },
-  { XTenant: "growdev" },
-  { XTenant: "frameworkdigital" },
-  { XTenant: "trinca" },
-  { XTenant: "objective" },
-  { XTenant: "iconit" },
-  { XTenant: "townsq" },
-  { XTenant: "kobe" },
-  { XTenant: "grupotaking" },
-  { XTenant: "tinnova" },
-  { XTenant: "vinta" },
-  { XTenant: "idwall" },
-  { XTenant: "gx2" },
-  { XTenant: "edge" },
-  { XTenant: "facilitapay" },
-  { XTenant: "bionexo" },
-  { XTenant: "cerc" },
-  { XTenant: "infleet" },
-  { XTenant: "medway" },
-  { XTenant: "shapedigital" },
-  { XTenant: "talentx" },
-  { XTenant: "coaktion" },
-  { XTenant: "zappts" },
-  { XTenant: "kamino" },
-  { XTenant: "sharepeoplehub" },
-  { XTenant: "transfero" },
-  { XTenant: "nomadglobal" },
-  { XTenant: "olist" },
-  { XTenant: "contabilizei" },
-  { XTenant: "loft" },
-  { XTenant: "nubank" },
-  { XTenant: "creditas" },
-  { XTenant: "ifood" },
-  { XTenant: "stone" },
-  { XTenant: "turbi" },
-  { XTenant: "kanastra" },
-  { XTenant: "qive" },
-  { XTenant: "zallpy" },
-  { XTenant: "ecore" },
-  { XTenant: "aprix" },
-  { XTenant: "luby" },
-  { XTenant: "brivia" },
-  { XTenant: "linx" },
-  { XTenant: "listo" },
-  { XTenant: "celero" },
-  { XTenant: "neogrid" },
-  { XTenant: "zenvia" },
-  { XTenant: "kiwify" },
-  { XTenant: "appmax" },
-  { XTenant: "ateliware" },
-  { XTenant: "bycoders" },
-  { XTenant: "nexaas" },
-  { XTenant: "rankmyapp" },
-  { XTenant: "superlogica" },
-  { XTenant: "tegra" },
-  { XTenant: "bemobi" }
-];
+  const tenants: TenantConfig[] = [
+    { XTenant: "alice" },
+    { XTenant: "programmers" },
+    { XTenant: "growdev" },
+    { XTenant: "frameworkdigital" },
+    { XTenant: "trinca" },
+    { XTenant: "objective" },
+    { XTenant: "iconit" },
+    { XTenant: "townsq" },
+    { XTenant: "kobe" },
+    { XTenant: "grupotaking" },
+    { XTenant: "tinnova" },
+    { XTenant: "vinta" },
+    { XTenant: "idwall" },
+    { XTenant: "gx2" },
+    { XTenant: "edge" },
+    { XTenant: "facilitapay" },
+    { XTenant: "bionexo" },
+    { XTenant: "cerc" },
+    { XTenant: "infleet" },
+    { XTenant: "medway" },
+    { XTenant: "shapedigital" },
+    { XTenant: "talentx" },
+    { XTenant: "coaktion" },
+    { XTenant: "zappts" },
+    { XTenant: "kamino" },
+    { XTenant: "sharepeoplehub" },
+    { XTenant: "transfero" },
+    { XTenant: "nomadglobal" },
+    { XTenant: "olist" },
+    { XTenant: "contabilizei" },
+    { XTenant: "loft" },
+    { XTenant: "nubank" },
+    { XTenant: "creditas" },
+    { XTenant: "ifood" },
+    { XTenant: "stone" },
+    { XTenant: "turbi" },
+    { XTenant: "kanastra" },
+    { XTenant: "qive" },
+    { XTenant: "zallpy" },
+    { XTenant: "ecore" },
+    { XTenant: "aprix" },
+    { XTenant: "luby" },
+    { XTenant: "brivia" },
+    { XTenant: "listo" },
+    { XTenant: "celero" },
+    { XTenant: "neogrid" },
+    { XTenant: "zenvia" },
+    { XTenant: "kiwify" },
+    { XTenant: "appmax" },
+    { XTenant: "ateliware" },
+    { XTenant: "bycoders" },
+    { XTenant: "nexaas" },
+    { XTenant: "rankmyapp" },
+    { XTenant: "superlogica" },
+    { XTenant: "tegra" },
+    { XTenant: "bemobi" },
+  ];
 
   if (!urlApi) {
     return new Response(
@@ -287,6 +649,12 @@ export async function GET() {
       jobId: string;
       displayName: string;
     }> = [];
+    const skippedOldJobs: Array<{
+      tenant: string;
+      jobId: string;
+      displayName: string;
+      publishedAt?: string | Date;
+    }> = [];
     const upsertTasks: UpsertTask[] = [];
 
     for (const response of fulfilledResponses) {
@@ -315,44 +683,166 @@ export async function GET() {
         return isTech;
       });
 
-      const existingJobs = await prisma.jobs.findMany({
-        where: {
-          jobId: {
-            in: techJobs.map((jobData) => jobData.jobId),
-          },
-        },
-        select: {
-          jobId: true,
-        },
+      const normalizedJobs = techJobs.map<NormalizedJob>((jobData) => ({
+        jobId: jobData.jobId,
+        displayName: jobData.displayName,
+        workplaceType: jobData.workplaceType,
+        location: jobData.location,
+        link: `https://${tenantName}.inhire.app/vagas/${jobData.jobId}/${slugify(
+          jobData.displayName,
+        )}`,
+        publishedAt: jobData.createdAt,
+      }));
+
+      const recentJobs = normalizedJobs.filter((jobData) => {
+        const isRecent = isPublishedWithinDays(jobData.publishedAt);
+
+        if (!isRecent) {
+          skippedOldJobs.push({
+            tenant: response.tenant,
+            jobId: jobData.jobId,
+            displayName: jobData.displayName,
+            publishedAt: jobData.publishedAt,
+          });
+        }
+
+        return isRecent;
       });
 
-      const existingJobIds = new Set(existingJobs.map((job) => job.jobId));
+      upsertTasks.push(
+        ...(await createUpsertTasks(response.tenant, tenantName, recentJobs)),
+      );
+    }
 
-      for (const jobData of techJobs) {
-        const { jobId, displayName, workplaceType, location } = jobData;
-        const action = existingJobIds.has(jobId) ? "updated" : "created";
+    try {
+      const greenhouseSource = await fetchGreenhouseJobs();
+      const recentGreenhouseJobs = greenhouseSource.jobs.filter((jobData) => {
+        const isRecent = isPublishedWithinDays(jobData.publishedAt);
 
-        const link = `https://${tenantName}.inhire.app/vagas/${jobId}/${slugify(
-          displayName,
-        )}`;
+        if (!isRecent) {
+          skippedOldJobs.push({
+            tenant: greenhouseSource.tenant,
+            jobId: jobData.jobId,
+            displayName: jobData.displayName,
+            publishedAt: jobData.publishedAt,
+          });
+        }
 
-        const job = {
-          link,
-          displayName,
-          workplaceType,
-          location,
-          tenantName,
-        };
+        return isRecent;
+      });
 
-        upsertTasks.push({
-          tenant: response.tenant,
-          promise: prisma.jobs.upsert({
-            where: { jobId },
-            update: job,
-            create: { jobId, ...job },
-          }).then(() => ({ action })),
-        });
+      upsertTasks.push(
+        ...(await createUpsertTasks(
+          greenhouseSource.tenant,
+          greenhouseSource.tenantName,
+          recentGreenhouseJobs,
+        )),
+      );
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      fetchFailures.push({
+        tenant: "greenhouse:linx",
+        reason,
+      });
+
+      await persistFailureLogs(runId, [
+        {
+          tenant: "greenhouse:linx",
+          stage: "fetch",
+          reason,
+        },
+      ]);
+    }
+
+    try {
+      const workableSource = await fetchWorkableJobs();
+      const recentWorkableJobs = workableSource.jobs.filter((jobData) => {
+        const isRecent = isPublishedWithinDays(jobData.publishedAt);
+
+        if (!isRecent) {
+          skippedOldJobs.push({
+            tenant: workableSource.tenant,
+            jobId: jobData.jobId,
+            displayName: jobData.displayName,
+            publishedAt: jobData.publishedAt,
+          });
+        }
+
+        return isRecent;
+      });
+
+      upsertTasks.push(
+        ...(await createUpsertTasks(
+          workableSource.tenant,
+          workableSource.tenantName,
+          recentWorkableJobs,
+        )),
+      );
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      fetchFailures.push({
+        tenant: "workable:jobrack",
+        reason,
+      });
+
+      await persistFailureLogs(runId, [
+        {
+          tenant: "workable:jobrack",
+          stage: "fetch",
+          reason,
+        },
+      ]);
+    }
+
+    try {
+      const workablePublicSource = await fetchWorkablePublicJobs();
+      const recentWorkablePublicJobs = workablePublicSource.jobs.filter((jobData) => {
+        const isRecent = isPublishedWithinDays(jobData.normalizedJob.publishedAt);
+
+        if (!isRecent) {
+          skippedOldJobs.push({
+            tenant: workablePublicSource.tenant,
+            jobId: jobData.normalizedJob.jobId,
+            displayName: jobData.normalizedJob.displayName,
+            publishedAt: jobData.normalizedJob.publishedAt,
+          });
+        }
+
+        return isRecent;
+      });
+
+      const jobsByTenant = recentWorkablePublicJobs.reduce<
+        Map<string, NormalizedJob[]>
+      >((accumulator, jobData) => {
+        const tenantJobs = accumulator.get(jobData.tenantName) || [];
+        tenantJobs.push(jobData.normalizedJob);
+        accumulator.set(jobData.tenantName, tenantJobs);
+        return accumulator;
+      }, new Map());
+
+      for (const [tenantName, jobs] of jobsByTenant) {
+        upsertTasks.push(
+          ...(await createUpsertTasks(
+            workablePublicSource.tenant,
+            tenantName,
+            jobs,
+          )),
+        );
       }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      fetchFailures.push({
+        tenant: "workable:global-brazil",
+        reason,
+      });
+
+      await persistFailureLogs(runId, [
+        {
+          tenant: "workable:global-brazil",
+          stage: "fetch",
+          reason,
+        },
+      ]);
     }
 
     const upsertResults = await Promise.allSettled(
@@ -412,8 +902,19 @@ export async function GET() {
       );
     }
 
+    if (skippedOldJobs.length > 0) {
+      console.log("Vagas ignoradas por serem antigas:", skippedOldJobs);
+    }
+
+    const processedTenants = tenants.length + 3;
     const successfulFetches =
-      fulfilledResponses.length - invalidPayloads.length;
+      fulfilledResponses.length -
+      invalidPayloads.length +
+      (fetchFailures.some((failure) => failure.tenant === "greenhouse:linx") ? 0 : 1) +
+      (fetchFailures.some((failure) => failure.tenant === "workable:jobrack") ? 0 : 1) +
+      (fetchFailures.some((failure) => failure.tenant === "workable:global-brazil")
+        ? 0
+        : 1);
     const successfulUpserts = upsertResults.filter(
       (result) => result.status === "fulfilled",
     ).length;
@@ -425,7 +926,7 @@ export async function GET() {
     ).length;
 
     const telegramResult = await sendCronSummaryTelegram({
-      processedTenants: tenants.length,
+      processedTenants,
       successfulFetches,
       createdCount,
       updatedCount,
@@ -433,6 +934,7 @@ export async function GET() {
       invalidPayloads,
       upsertFailures,
       skippedNonTechJobs: skippedNonTechJobs.length,
+      skippedOldJobs: skippedOldJobs.length,
     }).catch(async (error) => {
       const reason = error instanceof Error ? error.message : String(error);
 
@@ -454,11 +956,12 @@ export async function GET() {
       JSON.stringify({
         success: fetchFailures.length === 0 && invalidPayloads.length === 0,
         runId,
-        processedTenants: tenants.length,
+        processedTenants,
         successfulFetches,
         fetchFailures,
         invalidPayloads,
         skippedNonTechJobs: skippedNonTechJobs.length,
+        skippedOldJobs: skippedOldJobs.length,
         attemptedUpserts: upsertTasks.length,
         successfulUpserts,
         createdCount,
