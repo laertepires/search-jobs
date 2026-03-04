@@ -514,9 +514,15 @@ async function sendCronSummaryTelegram({
   };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const urlApi = process.env.API_URL || "";
   const runId = crypto.randomUUID();
+  const { searchParams } = new URL(request.url);
+  const source = searchParams.get("source") || "all";
+  const batch = Math.max(Number(searchParams.get("batch")) || 1, 1);
+  const batchSize = Math.max(Number(searchParams.get("batchSize")) || 15, 1);
+  const shouldNotify =
+    searchParams.get("notify") === "true" || searchParams.get("notify") === "1";
   const tenants: TenantConfig[] = [
     { XTenant: "alice" },
     { XTenant: "programmers" },
@@ -590,22 +596,33 @@ export async function GET() {
   }
 
   try {
-    const fetchResults = await Promise.allSettled(
-      tenants.map(async (tenant) => {
-        const response = await axios.get<TenantPayload>(urlApi, {
-          headers: {
-            "X-Tenant": tenant.XTenant,
-          },
-        });
+    const batchStart = (batch - 1) * batchSize;
+    const selectedTenants = tenants.slice(batchStart, batchStart + batchSize);
+    const shouldRunInhire = source === "all" || source === "inhire";
+    const shouldRunGreenhouse = source === "all" || source === "greenhouse";
+    const shouldRunWorkableJobrack = source === "all" || source === "workable-jobrack";
+    const shouldRunWorkablePublic = source === "all" || source === "workable-public";
 
-        return {
-          tenant: tenant.XTenant,
-          data: response.data,
-        };
-      }),
-    );
+    const fetchResults = shouldRunInhire
+      ? await Promise.allSettled(
+          selectedTenants.map(async (tenant) => {
+            const response = await axios.get<TenantPayload>(urlApi, {
+              headers: {
+                "X-Tenant": tenant.XTenant,
+              },
+            });
 
-    console.log(`Consultas realizadas em ${new Date().toLocaleString()}`);
+            return {
+              tenant: tenant.XTenant,
+              data: response.data,
+            };
+          }),
+        )
+      : [];
+
+    if (shouldRunInhire) {
+      console.log(`Consultas realizadas em ${new Date().toLocaleString()}`);
+    }
 
     const fetchFailures = fetchResults
       .map((result, index) => {
@@ -614,7 +631,7 @@ export async function GET() {
         }
 
         return {
-          tenant: tenants[index].XTenant,
+          tenant: selectedTenants[index].XTenant,
           reason:
             result.reason instanceof Error
               ? result.reason.message
@@ -623,14 +640,16 @@ export async function GET() {
       })
       .filter((failure): failure is TenantFailure => failure !== null);
 
-    await persistFailureLogs(
-      runId,
-      fetchFailures.map((failure) => ({
-        tenant: failure.tenant,
-        stage: "fetch" as const,
-        reason: failure.reason,
-      })),
-    );
+    if (fetchFailures.length > 0) {
+      await persistFailureLogs(
+        runId,
+        fetchFailures.map((failure) => ({
+          tenant: failure.tenant,
+          stage: "fetch" as const,
+          reason: failure.reason,
+        })),
+      );
+    }
 
     const fulfilledResponses = fetchResults
       .filter(
@@ -714,135 +733,141 @@ export async function GET() {
       );
     }
 
-    try {
-      const greenhouseSource = await fetchGreenhouseJobs();
-      const recentGreenhouseJobs = greenhouseSource.jobs.filter((jobData) => {
-        const isRecent = isPublishedWithinDays(jobData.publishedAt);
+    if (shouldRunGreenhouse) {
+      try {
+        const greenhouseSource = await fetchGreenhouseJobs();
+        const recentGreenhouseJobs = greenhouseSource.jobs.filter((jobData) => {
+          const isRecent = isPublishedWithinDays(jobData.publishedAt);
 
-        if (!isRecent) {
-          skippedOldJobs.push({
-            tenant: greenhouseSource.tenant,
-            jobId: jobData.jobId,
-            displayName: jobData.displayName,
-            publishedAt: jobData.publishedAt,
-          });
-        }
+          if (!isRecent) {
+            skippedOldJobs.push({
+              tenant: greenhouseSource.tenant,
+              jobId: jobData.jobId,
+              displayName: jobData.displayName,
+              publishedAt: jobData.publishedAt,
+            });
+          }
 
-        return isRecent;
-      });
+          return isRecent;
+        });
 
-      upsertTasks.push(
-        ...(await createUpsertTasks(
-          greenhouseSource.tenant,
-          greenhouseSource.tenantName,
-          recentGreenhouseJobs,
-        )),
-      );
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      fetchFailures.push({
-        tenant: "greenhouse:linx",
-        reason,
-      });
-
-      await persistFailureLogs(runId, [
-        {
-          tenant: "greenhouse:linx",
-          stage: "fetch",
-          reason,
-        },
-      ]);
-    }
-
-    try {
-      const workableSource = await fetchWorkableJobs();
-      const recentWorkableJobs = workableSource.jobs.filter((jobData) => {
-        const isRecent = isPublishedWithinDays(jobData.publishedAt);
-
-        if (!isRecent) {
-          skippedOldJobs.push({
-            tenant: workableSource.tenant,
-            jobId: jobData.jobId,
-            displayName: jobData.displayName,
-            publishedAt: jobData.publishedAt,
-          });
-        }
-
-        return isRecent;
-      });
-
-      upsertTasks.push(
-        ...(await createUpsertTasks(
-          workableSource.tenant,
-          workableSource.tenantName,
-          recentWorkableJobs,
-        )),
-      );
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      fetchFailures.push({
-        tenant: "workable:jobrack",
-        reason,
-      });
-
-      await persistFailureLogs(runId, [
-        {
-          tenant: "workable:jobrack",
-          stage: "fetch",
-          reason,
-        },
-      ]);
-    }
-
-    try {
-      const workablePublicSource = await fetchWorkablePublicJobs();
-      const recentWorkablePublicJobs = workablePublicSource.jobs.filter((jobData) => {
-        const isRecent = isPublishedWithinDays(jobData.normalizedJob.publishedAt);
-
-        if (!isRecent) {
-          skippedOldJobs.push({
-            tenant: workablePublicSource.tenant,
-            jobId: jobData.normalizedJob.jobId,
-            displayName: jobData.normalizedJob.displayName,
-            publishedAt: jobData.normalizedJob.publishedAt,
-          });
-        }
-
-        return isRecent;
-      });
-
-      const jobsByTenant = recentWorkablePublicJobs.reduce<
-        Map<string, NormalizedJob[]>
-      >((accumulator, jobData) => {
-        const tenantJobs = accumulator.get(jobData.tenantName) || [];
-        tenantJobs.push(jobData.normalizedJob);
-        accumulator.set(jobData.tenantName, tenantJobs);
-        return accumulator;
-      }, new Map());
-
-      for (const [tenantName, jobs] of jobsByTenant) {
         upsertTasks.push(
           ...(await createUpsertTasks(
-            workablePublicSource.tenant,
-            tenantName,
-            jobs,
+            greenhouseSource.tenant,
+            greenhouseSource.tenantName,
+            recentGreenhouseJobs,
           )),
         );
-      }
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      fetchFailures.push({
-        tenant: "workable:global-brazil",
-        reason,
-      });
-
-      await persistFailureLogs(runId, [
-        {
-          tenant: "workable:global-brazil",
-          stage: "fetch",
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        fetchFailures.push({
+          tenant: "greenhouse:linx",
           reason,
-        },
-      ]);
+        });
+
+        await persistFailureLogs(runId, [
+          {
+            tenant: "greenhouse:linx",
+            stage: "fetch",
+            reason,
+          },
+        ]);
+      }
+    }
+
+    if (shouldRunWorkableJobrack) {
+      try {
+        const workableSource = await fetchWorkableJobs();
+        const recentWorkableJobs = workableSource.jobs.filter((jobData) => {
+          const isRecent = isPublishedWithinDays(jobData.publishedAt);
+
+          if (!isRecent) {
+            skippedOldJobs.push({
+              tenant: workableSource.tenant,
+              jobId: jobData.jobId,
+              displayName: jobData.displayName,
+              publishedAt: jobData.publishedAt,
+            });
+          }
+
+          return isRecent;
+        });
+
+        upsertTasks.push(
+          ...(await createUpsertTasks(
+            workableSource.tenant,
+            workableSource.tenantName,
+            recentWorkableJobs,
+          )),
+        );
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        fetchFailures.push({
+          tenant: "workable:jobrack",
+          reason,
+        });
+
+        await persistFailureLogs(runId, [
+          {
+            tenant: "workable:jobrack",
+            stage: "fetch",
+            reason,
+          },
+        ]);
+      }
+    }
+
+    if (shouldRunWorkablePublic) {
+      try {
+        const workablePublicSource = await fetchWorkablePublicJobs();
+        const recentWorkablePublicJobs = workablePublicSource.jobs.filter((jobData) => {
+          const isRecent = isPublishedWithinDays(jobData.normalizedJob.publishedAt);
+
+          if (!isRecent) {
+            skippedOldJobs.push({
+              tenant: workablePublicSource.tenant,
+              jobId: jobData.normalizedJob.jobId,
+              displayName: jobData.normalizedJob.displayName,
+              publishedAt: jobData.normalizedJob.publishedAt,
+            });
+          }
+
+          return isRecent;
+        });
+
+        const jobsByTenant = recentWorkablePublicJobs.reduce<
+          Map<string, NormalizedJob[]>
+        >((accumulator, jobData) => {
+          const tenantJobs = accumulator.get(jobData.tenantName) || [];
+          tenantJobs.push(jobData.normalizedJob);
+          accumulator.set(jobData.tenantName, tenantJobs);
+          return accumulator;
+        }, new Map());
+
+        for (const [tenantName, jobs] of jobsByTenant) {
+          upsertTasks.push(
+            ...(await createUpsertTasks(
+              workablePublicSource.tenant,
+              tenantName,
+              jobs,
+            )),
+          );
+        }
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        fetchFailures.push({
+          tenant: "workable:global-brazil",
+          reason,
+        });
+
+        await persistFailureLogs(runId, [
+          {
+            tenant: "workable:global-brazil",
+            stage: "fetch",
+            reason,
+          },
+        ]);
+      }
     }
 
     const upsertResults = await Promise.allSettled(
@@ -906,15 +931,29 @@ export async function GET() {
       console.log("Vagas ignoradas por serem antigas:", skippedOldJobs);
     }
 
-    const processedTenants = tenants.length + 3;
+    const processedTenants =
+      (shouldRunInhire ? selectedTenants.length : 0) +
+      (shouldRunGreenhouse ? 1 : 0) +
+      (shouldRunWorkableJobrack ? 1 : 0) +
+      (shouldRunWorkablePublic ? 1 : 0);
     const successfulFetches =
       fulfilledResponses.length -
       invalidPayloads.length +
-      (fetchFailures.some((failure) => failure.tenant === "greenhouse:linx") ? 0 : 1) +
-      (fetchFailures.some((failure) => failure.tenant === "workable:jobrack") ? 0 : 1) +
-      (fetchFailures.some((failure) => failure.tenant === "workable:global-brazil")
-        ? 0
-        : 1);
+      (shouldRunGreenhouse
+        ? fetchFailures.some((failure) => failure.tenant === "greenhouse:linx")
+          ? 0
+          : 1
+        : 0) +
+      (shouldRunWorkableJobrack
+        ? fetchFailures.some((failure) => failure.tenant === "workable:jobrack")
+          ? 0
+          : 1
+        : 0) +
+      (shouldRunWorkablePublic
+        ? fetchFailures.some((failure) => failure.tenant === "workable:global-brazil")
+          ? 0
+          : 1
+        : 0);
     const successfulUpserts = upsertResults.filter(
       (result) => result.status === "fulfilled",
     ).length;
@@ -925,37 +964,45 @@ export async function GET() {
       (result) => result.status === "fulfilled" && result.value.action === "updated",
     ).length;
 
-    const telegramResult = await sendCronSummaryTelegram({
-      processedTenants,
-      successfulFetches,
-      createdCount,
-      updatedCount,
-      fetchFailures,
-      invalidPayloads,
-      upsertFailures,
-      skippedNonTechJobs: skippedNonTechJobs.length,
-      skippedOldJobs: skippedOldJobs.length,
-    }).catch(async (error) => {
-      const reason = error instanceof Error ? error.message : String(error);
+    const telegramResult = shouldNotify
+      ? await sendCronSummaryTelegram({
+          processedTenants,
+          successfulFetches,
+          createdCount,
+          updatedCount,
+          fetchFailures,
+          invalidPayloads,
+          upsertFailures,
+          skippedNonTechJobs: skippedNonTechJobs.length,
+          skippedOldJobs: skippedOldJobs.length,
+        }).catch(async (error) => {
+          const reason = error instanceof Error ? error.message : String(error);
 
-      await persistFailureLogs(runId, [
-        {
-          tenant: "system",
-          stage: "email",
-          reason,
-        },
-      ]);
+          await persistFailureLogs(runId, [
+            {
+              tenant: "system",
+              stage: "email",
+              reason,
+            },
+          ]);
 
-      return {
-        sent: false,
-        reason,
-      };
-    });
+          return {
+            sent: false,
+            reason,
+          };
+        })
+      : {
+          sent: false,
+          reason: "Notificacao desativada para esta execucao",
+        };
 
     return new Response(
       JSON.stringify({
         success: fetchFailures.length === 0 && invalidPayloads.length === 0,
         runId,
+        source,
+        batch,
+        batchSize,
         processedTenants,
         successfulFetches,
         fetchFailures,
