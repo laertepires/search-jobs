@@ -1,8 +1,32 @@
 {
-    "crons": [
-      {
-        "path": "/api/cron",
-        "schedule": "0 0 * * *"
-      }
-    ]
-  }
+  "crons": [
+    {
+      "path": "/api/cron?source=inhire&batch=1&batchSize=15",
+      "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron?source=inhire&batch=2&batchSize=15",
+      "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/cron?source=inhire&batch=3&batchSize=15",
+      "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron?source=inhire&batch=4&batchSize=15",
+      "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron?source=greenhouse",
+      "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/cron?source=workable-jobrack",
+      "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/cron?source=workable-public&notify=true",
+      "schedule": "0 6 * * *"
+    }
+  ]
+}
