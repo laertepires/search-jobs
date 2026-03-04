@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useFormContext } from "react-hook-form";
 import {
   Box,
@@ -36,6 +37,10 @@ function FilterSection({
   emptyLabel: string;
   getLabel?: (option: string) => string;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const visibleOptions = expanded ? options : options.slice(0, 8);
+  const hasOverflow = options.length > 8;
+
   return (
     <Box>
       <Typography
@@ -52,7 +57,7 @@ function FilterSection({
 
       {options.length > 0 ? (
         <Stack sx={{ mt: 1 }}>
-          {options.map((option) => (
+          {visibleOptions.map((option) => (
             <FormControlLabel
               key={option}
               control={
@@ -71,6 +76,23 @@ function FilterSection({
               }}
             />
           ))}
+
+          {hasOverflow ? (
+            <Button
+              variant="text"
+              onClick={() => setExpanded((current) => !current)}
+              sx={{
+                alignSelf: "flex-start",
+                mt: 0.5,
+                px: 0,
+                minWidth: 0,
+                fontSize: 13,
+                fontWeight: 700,
+              }}
+            >
+              {expanded ? "Ver menos" : `Ver mais (${options.length - 8})`}
+            </Button>
+          ) : null}
         </Stack>
       ) : (
         <Typography sx={{ mt: 1.5, color: "text.secondary", fontSize: 14 }}>
