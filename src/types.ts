@@ -36,6 +36,7 @@ export interface Job {
   link: string;
   published: boolean;
   XTenant: string | null;
+  sourcePublishedAt?: Date | string | null;
   createdAt: Date;
   tenantName: string;
 }

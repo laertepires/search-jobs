@@ -120,9 +120,19 @@ export async function GET(request: Request) {
       : {}),
     ...(publishedAfter
       ? {
-          createdAt: {
-            gte: publishedAfter,
-          },
+          OR: [
+            {
+              sourcePublishedAt: {
+                gte: publishedAfter,
+              },
+            },
+            {
+              sourcePublishedAt: null,
+              createdAt: {
+                gte: publishedAfter,
+              },
+            },
+          ],
         }
       : {}),
   };

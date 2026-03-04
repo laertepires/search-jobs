@@ -21,6 +21,7 @@ model Jobs {
   link            String?
   published       Boolean @default(true)
   XTenant         String?
+  sourcePublishedAt DateTime?
   createdAt       DateTime @default(now())
   tenantName      String?
 }

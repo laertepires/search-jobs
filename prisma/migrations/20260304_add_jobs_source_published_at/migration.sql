@@ -1,0 +1,2 @@
+ALTER TABLE `Jobs`
+ADD COLUMN `sourcePublishedAt` DATETIME(3) NULL;

@@ -184,7 +184,7 @@ export default function JobList({ dehydratedState }: DehydratedProps) {
                     <Stack direction="row" spacing={1} alignItems="center">
                       <ScheduleRoundedIcon sx={{ color: "text.secondary" }} />
                       <Typography color="text.secondary">
-                        Postado {formatDate(result.createdAt)}
+                        Postado {formatDate(result.sourcePublishedAt || result.createdAt)}
                       </Typography>
                     </Stack>
                   </Stack>

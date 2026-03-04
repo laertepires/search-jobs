@@ -9,7 +9,7 @@ import { differenceInDays, isToday, isValid, isYesterday } from "date-fns";
  * @param {string | Date} createdAt - A data a ser formatada.
  * @returns {string} - A data formatada.
  */
-export function formatDate(createdAt: Date) {
+export function formatDate(createdAt: string | Date) {
   const date = createdAt instanceof Date ? createdAt : new Date(createdAt);
 
   if (!isValid(date)) {

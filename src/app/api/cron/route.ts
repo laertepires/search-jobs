@@ -195,12 +195,13 @@ async function createUpsertTasks(
 
   return jobs.map<UpsertTask>((job) => {
     const action = existingJobIds.has(job.jobId) ? "updated" : "created";
-    const payload = {
+    const payload: any = {
       link: job.link,
       displayName: job.displayName,
       workplaceType: job.workplaceType,
       location: job.location,
       tenantName,
+      sourcePublishedAt: job.publishedAt ? new Date(job.publishedAt) : null,
     };
 
     return {
