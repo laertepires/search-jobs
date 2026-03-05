@@ -8,6 +8,15 @@ function parseListParam(value: string | null) {
     .filter(Boolean);
 }
 
+function getStartOfSaoPauloDay(daysBack = 0) {
+  const saoPauloOffsetMs = 3 * 60 * 60 * 1000;
+  const now = new Date();
+  const saoPauloNowAsUtc = new Date(now.getTime() - saoPauloOffsetMs);
+  saoPauloNowAsUtc.setUTCHours(0, 0, 0, 0);
+  saoPauloNowAsUtc.setUTCDate(saoPauloNowAsUtc.getUTCDate() - daysBack);
+  return new Date(saoPauloNowAsUtc.getTime() + saoPauloOffsetMs);
+}
+
 function normalizeLocationPart(value: string) {
   return value
     .replace(/^state of\s+/i, "")
@@ -67,9 +76,7 @@ export async function GET(request: Request) {
     : {};
 
   const publishedAfter =
-    postedWithinDays > 0
-      ? new Date(Date.now() - postedWithinDays * 24 * 60 * 60 * 1000)
-      : null;
+    postedWithinDays > 0 ? getStartOfSaoPauloDay(postedWithinDays - 1) : null;
 
   const locationOptions = await prisma.jobs.findMany({
     where: searchWhere,

@@ -1,4 +1,25 @@
-import { differenceInDays, isToday, isValid, isYesterday } from "date-fns";
+import { isValid } from "date-fns";
+
+const saoPauloDateFormatter = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/Sao_Paulo",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+function getSaoPauloDateKey(date: Date) {
+  return saoPauloDateFormatter.format(date);
+}
+
+function getSaoPauloDayDifference(date: Date) {
+  const targetDate = getSaoPauloDateKey(date);
+  const currentDate = getSaoPauloDateKey(new Date());
+
+  const targetUtcMidnight = new Date(`${targetDate}T00:00:00Z`).getTime();
+  const currentUtcMidnight = new Date(`${currentDate}T00:00:00Z`).getTime();
+
+  return Math.round((currentUtcMidnight - targetUtcMidnight) / 86400000);
+}
 
 /**
  * Formata uma data para uma string descritiva relativa à data atual.
@@ -16,16 +37,14 @@ export function formatDate(createdAt: string | Date) {
     return "Data inválida";
   }
 
-  const now = new Date();
-  
+  const diffDays = getSaoPauloDayDifference(date);
 
-  if (isToday(date)) {
+  if (diffDays <= 0) {
     return "hoje";
   }
 
-  const diffDays = differenceInDays(now, date);
-  if (isYesterday(date)) return "ontem";
-  return diffDays === 1 ? "1 dia atrás" : `${diffDays} dias atrás`;
+  if (diffDays === 1) return "ontem";
+  return `${diffDays} dias atrás`;
 }
 
 /**
