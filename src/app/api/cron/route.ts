@@ -221,60 +221,60 @@ async function createUpsertTasks(
   });
 }
 
-async function fetchGreenhouseJobs() {
-  const tenant = "greenhouse:linx";
-  const tenantName = "Linx";
-  const departmentId = "4070828003";
-  const baseUrl = "https://job-boards.greenhouse.io/linx/";
+// async function fetchGreenhouseJobs() {
+//   const tenant = "greenhouse:linx";
+//   const tenantName = "Linx";
+//   const departmentId = "4070828003";
+//   const baseUrl = "https://job-boards.greenhouse.io/linx/";
 
-  const fetchPage = async (page: number) => {
-    const response = await axios.get<GreenhouseResponse>(baseUrl, {
-      params: {
-        "departments[]": departmentId,
-        page,
-        _data: "routes/$url_token",
-      },
-    });
+//   const fetchPage = async (page: number) => {
+//     const response = await axios.get<GreenhouseResponse>(baseUrl, {
+//       params: {
+//         "departments[]": departmentId,
+//         page,
+//         _data: "routes/$url_token",
+//       },
+//     });
 
-    return response.data;
-  };
+//     return response.data;
+//   };
 
-  const firstPage = await fetchPage(1);
+//   const firstPage = await fetchPage(1);
 
-  if (!firstPage.jobPosts || !Array.isArray(firstPage.jobPosts.data)) {
-    throw new Error("Estrutura de dados invalida da Greenhouse");
-  }
+//   if (!firstPage.jobPosts || !Array.isArray(firstPage.jobPosts.data)) {
+//     throw new Error("Estrutura de dados invalida da Greenhouse");
+//   }
 
-  const totalPages = Math.max(firstPage.jobPosts.total_pages || 1, 1);
-  const remainingPages =
-    totalPages > 1
-      ? await Promise.all(
-          Array.from({ length: totalPages - 1 }, (_, index) => fetchPage(index + 2)),
-        )
-      : [];
+//   const totalPages = Math.max(firstPage.jobPosts.total_pages || 1, 1);
+//   const remainingPages =
+//     totalPages > 1
+//       ? await Promise.all(
+//           Array.from({ length: totalPages - 1 }, (_, index) => fetchPage(index + 2)),
+//         )
+//       : [];
 
-  const allPosts = [
-    ...firstPage.jobPosts.data,
-    ...remainingPages.flatMap((page) => page.jobPosts?.data || []),
-  ];
+//   const allPosts = [
+//     ...firstPage.jobPosts.data,
+//     ...remainingPages.flatMap((page) => page.jobPosts?.data || []),
+//   ];
 
-  const jobs = allPosts
-    .filter((post) => post.department?.name === "Engenharia & Tecnologia")
-    .map<NormalizedJob>((post) => ({
-      jobId: `greenhouse-linx-${post.id}`,
-      displayName: post.title,
-      workplaceType: inferWorkplaceType(post.location),
-      location: post.location || "Local nao informado",
-      link: post.absolute_url,
-      publishedAt: post.published_at,
-    }));
+//   const jobs = allPosts
+//     .filter((post) => post.department?.name === "Engenharia & Tecnologia")
+//     .map<NormalizedJob>((post) => ({
+//       jobId: `greenhouse-linx-${post.id}`,
+//       displayName: post.title,
+//       workplaceType: inferWorkplaceType(post.location),
+//       location: post.location || "Local nao informado",
+//       link: post.absolute_url,
+//       publishedAt: post.published_at,
+//     }));
 
-  return {
-    tenant,
-    tenantName,
-    jobs,
-  };
-}
+//   return {
+//     tenant,
+//     tenantName,
+//     jobs,
+//   };
+// }
 
 function formatWorkableLocation(location?: WorkableLocation | null) {
   if (!location) {
@@ -738,47 +738,47 @@ export async function GET(request: Request) {
       );
     }
 
-    if (shouldRunGreenhouse) {
-      try {
-        const greenhouseSource = await fetchGreenhouseJobs();
-        const recentGreenhouseJobs = greenhouseSource.jobs.filter((jobData) => {
-          const isRecent = isPublishedWithinDays(jobData.publishedAt);
+    // if (shouldRunGreenhouse) {
+    //   try {
+    //     const greenhouseSource = await fetchGreenhouseJobs();
+    //     const recentGreenhouseJobs = greenhouseSource.jobs.filter((jobData) => {
+    //       const isRecent = isPublishedWithinDays(jobData.publishedAt);
 
-          if (!isRecent) {
-            skippedOldJobs.push({
-              tenant: greenhouseSource.tenant,
-              jobId: jobData.jobId,
-              displayName: jobData.displayName,
-              publishedAt: jobData.publishedAt,
-            });
-          }
+    //       if (!isRecent) {
+    //         skippedOldJobs.push({
+    //           tenant: greenhouseSource.tenant,
+    //           jobId: jobData.jobId,
+    //           displayName: jobData.displayName,
+    //           publishedAt: jobData.publishedAt,
+    //         });
+    //       }
 
-          return isRecent;
-        });
+    //       return isRecent;
+    //     });
 
-        upsertTasks.push(
-          ...(await createUpsertTasks(
-            greenhouseSource.tenant,
-            greenhouseSource.tenantName,
-            recentGreenhouseJobs,
-          )),
-        );
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        fetchFailures.push({
-          tenant: "greenhouse:linx",
-          reason,
-        });
+    //     upsertTasks.push(
+    //       ...(await createUpsertTasks(
+    //         greenhouseSource.tenant,
+    //         greenhouseSource.tenantName,
+    //         recentGreenhouseJobs,
+    //       )),
+    //     );
+    //   } catch (error) {
+    //     const reason = error instanceof Error ? error.message : String(error);
+    //     fetchFailures.push({
+    //       tenant: "greenhouse:linx",
+    //       reason,
+    //     });
 
-        await persistFailureLogs(runId, [
-          {
-            tenant: "greenhouse:linx",
-            stage: "fetch",
-            reason,
-          },
-        ]);
-      }
-    }
+    //     await persistFailureLogs(runId, [
+    //       {
+    //         tenant: "greenhouse:linx",
+    //         stage: "fetch",
+    //         reason,
+    //       },
+    //     ]);
+    //   }
+    // }
 
     if (shouldRunWorkableJobrack) {
       try {
